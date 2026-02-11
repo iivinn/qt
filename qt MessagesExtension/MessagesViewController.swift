@@ -10,42 +10,54 @@ import Messages
 import SwiftUI
 import QtUI
 
-class MessagesViewController: MSMessagesAppViewController {
-    private var hostingController: UIHostingController<ContentView>?
-    
+@MainActor
+final class MessagesViewController: MSMessagesAppViewController {
+    private var hostingController: UIHostingController<AnyView>?
+    private var host: MessagesHost!
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view.
+        host = MessagesHost(controller: self)
         hostSwiftUIView()
     }
-    
+
     private func hostSwiftUIView() {
         guard hostingController == nil else { return }
-        
-        let host = UIHostingController(rootView: ContentView())
-        
-        addChild(host)
-        view.addSubview(host.view)
-        
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-                NSLayoutConstraint.activate([
-                    host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                    host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                    host.view.topAnchor.constraint(equalTo: view.topAnchor),
-                    host.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-                ])
 
-                host.didMove(toParent: self)
-                hostingController = host
+        // Build the injected actions
+        let actions = MessagesActions(
+            requestExpanded: { [weak host] in host?.requestExpanded() },
+            requestCompact: { [weak host] in host?.requestCompact() },
+            insertText: { [weak host] text in host?.insertText(text) },
+            insertEventLink: { [weak host] url, title in host?.insertEventLink(url, title: title) }
+        )
+
+        let root = ContentView() // from your package
+            .environment(\.messagesActions, actions)
+
+        let hc = UIHostingController(rootView: AnyView(root))
+        addChild(hc)
+        view.addSubview(hc.view)
+
+        hc.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            hc.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hc.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hc.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hc.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        hc.didMove(toParent: self)
+        hostingController = hc
     }
-    
-    // MARK: - Conversation Handling
     
     override func willBecomeActive(with conversation: MSConversation) {
         // Called when the extension is about to move from the inactive to active state.
         // This will happen when the extension is about to present UI.
         
         // Use this method to configure the extension and restore previously stored state.
+        super.willBecomeActive(with: conversation)
+        host.updateConversation(conversation)
         print("willBecomeActive")
     }
     
@@ -57,6 +69,8 @@ class MessagesViewController: MSMessagesAppViewController {
         // Use this method to release shared resources, save user data, invalidate timers,
         // and store enough state information to restore your extension to its current state
         // in case it is terminated later.
+        super.didResignActive(with: conversation)
+        host.updateConversation(nil)
         print("didResignActive")
     }
    
