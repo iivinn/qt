@@ -6,8 +6,38 @@
 	<dict>
 		<key>qt MessagesExtension.xcscheme_^#shared#^_</key>
 		<dict>
+			<key>isShown</key>
+			<true/>
 			<key>orderHint</key>
 			<integer>0</integer>
+		</dict>
+		<key>qtPreviewHost.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>0CCA25462F3BFE9700A6D8C6</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>0CCA254F2F3BFE9800A6D8C6</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>0CCA25712F3C318200A6D8C6</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>0CCA25872F3CDA0E00A6D8C6</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>
