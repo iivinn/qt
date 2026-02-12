@@ -95,7 +95,7 @@ struct ContentView: View {
                 .frame(width: 26, height: 26)
                 .overlay(Image(systemName: "person.fill").foregroundStyle(.white).font(.caption2))
 
-            Text("Create an event, then add availability.")
+            Text("Hey guys! What's the best day for DND?")
                 .font(.footnote)
                 .foregroundStyle(.primary)
                 .padding(.horizontal, 10)

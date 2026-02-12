@@ -17,24 +17,30 @@ struct NewEventView: View {
     @State private var endDate: Date = {
         today(atHour: 17)
     }()
-    @State private var selectedDates: Set<DateComponents> = []
+    @State private var selectedDayKeys: Set<DayKey> = []
     @State private var validationMessage: String?
     @State private var validationTask: Task<Void, Never>?
 
-    private var normalizedSelectedDates: Set<DateComponents> {
-        normalizeSelectedDateComponents(selectedDates)
+    private var selectionCalendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .current
+        return calendar
+    }
+
+    private var selectedDateComponents: Set<DateComponents> {
+        Set(selectedDayKeys.map { dayComponents(from: $0, calendar: selectionCalendar) })
     }
 
     private var selectedDatesBinding: Binding<Set<DateComponents>> {
         Binding(
-            get: { normalizedSelectedDates },
-            set: { selectedDates = normalizeSelectedDateComponents($0) }
+            get: { selectedDateComponents },
+            set: { selectedDayKeys = dayKeys(from: $0, calendar: selectionCalendar) }
         )
     }
 
     private var canCreateEvent: Bool {
         let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && !normalizedSelectedDates.isEmpty
+        return !trimmed.isEmpty && !selectedDayKeys.isEmpty
     }
     
     var body: some View {
@@ -69,14 +75,16 @@ struct NewEventView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.white)
                         .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    MultiDatePicker(selection: selectedDatesBinding) { EmptyView() }.frame(maxHeight: 340)
+                    MultiDatePicker(selection: selectedDatesBinding) { EmptyView() }
+                        .environment(\.calendar, selectionCalendar)
+                        .frame(maxHeight: 340)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 Button("Create event") {
                     // Basic validation
                     let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let canonicalDates = normalizedSelectedDates
+                    let canonicalDates = selectedDateComponents
                     guard !canonicalDates.isEmpty else { return }
                     if startDate >= endDate {
                         showValidation("Start time must be before end time.")
@@ -101,7 +109,7 @@ struct NewEventView: View {
                     ) else { return }
 
                     validationMessage = nil
-                    selectedDates = canonicalDates
+                    selectedDayKeys = dayKeys(from: canonicalDates, calendar: selectionCalendar)
                     actions.insertEventLink(url, trimmed.isEmpty ? "New Event" : trimmed)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -213,22 +221,39 @@ private func hasAlreadyPassedDateTime(_ selectedDates: Set<DateComponents>, star
     }
 }
 
-private func normalizeSelectedDateComponents(_ selectedDates: Set<DateComponents>) -> Set<DateComponents> {
-    let calendar = Calendar.current
-    return Set(selectedDates.compactMap { normalizeDayComponent($0, calendar: calendar) })
+private struct DayKey: Hashable {
+    let year: Int
+    let month: Int
+    let day: Int
 }
 
-private func normalizeDayComponent(_ dateComponents: DateComponents, calendar: Calendar) -> DateComponents? {
-    if let year = dateComponents.year,
-       let month = dateComponents.month,
-       let day = dateComponents.day {
-        return DateComponents(year: year, month: month, day: day)
+private func dayKeys(from selection: Set<DateComponents>, calendar: Calendar) -> Set<DayKey> {
+    Set(selection.compactMap { dayKey(from: $0, calendar: calendar) })
+}
+
+private func dayKey(from components: DateComponents, calendar: Calendar) -> DayKey? {
+    if let year = components.year,
+       let month = components.month,
+       let day = components.day {
+        return DayKey(year: year, month: month, day: day)
     }
 
-    guard let date = dateComponents.date ?? calendar.date(from: dateComponents) else { return nil }
-    let dayStart = calendar.startOfDay(for: date)
-    let normalized = calendar.dateComponents([.year, .month, .day], from: dayStart)
-    return DateComponents(year: normalized.year, month: normalized.month, day: normalized.day)
+    guard let date = components.date ?? calendar.date(from: components) else { return nil }
+    let normalized = calendar.dateComponents([.year, .month, .day], from: calendar.startOfDay(for: date))
+    guard let year = normalized.year,
+          let month = normalized.month,
+          let day = normalized.day else { return nil }
+    return DayKey(year: year, month: month, day: day)
+}
+
+private func dayComponents(from key: DayKey, calendar: Calendar) -> DateComponents {
+    DateComponents(
+        calendar: calendar,
+        timeZone: calendar.timeZone,
+        year: key.year,
+        month: key.month,
+        day: key.day
+    )
 }
 
 private func hourLabel(_ hour: Int) -> String {
