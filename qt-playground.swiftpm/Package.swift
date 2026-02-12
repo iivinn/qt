@@ -19,8 +19,8 @@ let package = Package(
             bundleIdentifier: "com.ivinn.qt-playground",
             displayVersion: "1.0",
             bundleVersion: "1",
-            appIcon: .asset("AppIcon"),
-            accentColor: .presetColor(.indigo),
+            appIcon: .placeholder(icon: .calendar),
+            accentColor: .presetColor(.blue),
             supportedDeviceFamilies: [
                 .pad,
                 .phone
@@ -46,5 +46,5 @@ let package = Package(
             path: "."
         )
     ],
-    swiftLanguageVersions: [.version("6")]
+    swiftLanguageModes: [.version("6")]
 )
