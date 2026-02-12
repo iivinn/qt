@@ -20,6 +20,8 @@ struct NewEventView: View {
     @State private var selectedDayKeys: Set<DayKey> = []
     @State private var validationMessage: String?
     @State private var validationTask: Task<Void, Never>?
+    @State private var scrollViewportHeight: CGFloat = 0
+    @State private var inlineCreateButtonFrame: CGRect = .null
 
     private var selectionCalendar: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -42,82 +44,107 @@ struct NewEventView: View {
         let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
         return !trimmed.isEmpty && !selectedDayKeys.isEmpty
     }
+
+    private var shouldShowFloatingCreateButton: Bool {
+        guard scrollViewportHeight > 0 else { return true }
+        guard !inlineCreateButtonFrame.isNull else { return true }
+        let minVisibleY: CGFloat = 8
+        let maxVisibleY: CGFloat = scrollViewportHeight - 8
+        let isVerticallyVisible = inlineCreateButtonFrame.maxY >= minVisibleY && inlineCreateButtonFrame.minY <= maxVisibleY
+        return !isVerticallyVisible
+    }
     
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("🗓️ New Event").font(.headline).fontWeight(.semibold)
-                TextField("Name your event...", text: $eventName).padding(8).frame(maxWidth: .infinity, maxHeight: 48)
-                    .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    ).padding(.init(top: 8, leading: 0, bottom: 8, trailing: 0))
-                
-                Text("What times might work?").font(.subheadline).fontWeight(.medium)
-                HStack(spacing: 8) {
-                    HourWheelPicker(
-                        hour: Binding(
-                            get: { hourComponent(from: startDate) },
-                            set: { startDate = dateWithHour(startDate, hour: $0) }
+        GeometryReader { geo in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("🗓️ New Event").font(.headline).fontWeight(.semibold)
+                    TextField("Name your event...", text: $eventName).padding(8).frame(maxWidth: .infinity, maxHeight: 48)
+                        .background(
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(.gray.opacity(0.3), lineWidth: 2)
+                        ).padding(.init(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    
+                    Text("What times might work?").font(.subheadline).fontWeight(.medium)
+                    HStack(spacing: 8) {
+                        HourWheelPicker(
+                            hour: Binding(
+                                get: { hourComponent(from: startDate) },
+                                set: { startDate = dateWithHour(startDate, hour: $0) }
+                            )
                         )
-                    )
-                    Text("to")
-                    HourWheelPicker(
-                        hour: Binding(
-                            get: { hourComponent(from: endDate) },
-                            set: { endDate = dateWithHour(endDate, hour: $0) }
+                        Text("to")
+                        HourWheelPicker(
+                            hour: Binding(
+                                get: { hourComponent(from: endDate) },
+                                set: { endDate = dateWithHour(endDate, hour: $0) }
+                            )
                         )
-                    )
-                }
-
-                Text("What dates might work?").font(.subheadline).fontWeight(.medium)
-                ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(.white)
-                        .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    MultiDatePicker(selection: selectedDatesBinding) { EmptyView() }
-                        .environment(\.calendar, selectionCalendar)
-                        .frame(maxHeight: 340)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                
-                Button("Create event") {
-                    // Basic validation
-                    let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let canonicalDates = selectedDateComponents
-                    guard !canonicalDates.isEmpty else { return }
-                    if startDate >= endDate {
-                        showValidation("Start time must be before end time.")
-                        return
                     }
 
-                    if hasDatesBeforeToday(canonicalDates) {
-                        showValidation("Selected dates cannot be before today.")
-                        return
+                    Text("What dates might work?").font(.subheadline).fontWeight(.medium)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(.white)
+                            .stroke(.gray.opacity(0.3), lineWidth: 2)
+                        MultiDatePicker(selection: selectedDatesBinding) { EmptyView() }
+                            .environment(\.calendar, selectionCalendar)
+                            .frame(maxHeight: 340)
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if hasAlreadyPassedDateTime(canonicalDates, startDate: startDate) {
-                        showValidation("Selected date and time cannot already be in the past.")
-                        return
+                    createEventButton
+                        .background(
+                            GeometryReader { buttonGeo in
+                                Color.clear.preference(
+                                    key: NewEventCreateButtonFrameKey.self,
+                                    value: buttonGeo.frame(in: .named("newEventScroll"))
+                                )
+                            }
+                        )
+
+                    if let validationMessage {
+                        Text(validationMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .transition(.opacity)
                     }
-
-                    guard let url = makeEventURL(
-                        name: trimmed,
-                        start: startDate,
-                        end: endDate,
-                        selectedDates: canonicalDates
-                    ) else { return }
-
-                    validationMessage = nil
-                    selectedDayKeys = dayKeys(from: canonicalDates, calendar: selectionCalendar)
-                    actions.insertEventLink(url, trimmed.isEmpty ? "New Event" : trimmed)
                 }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .buttonStyle(.glassProminent)
-                .buttonSizing(.flexible)
-                .disabled(!canCreateEvent)
+                .padding(.all)
+                .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
+                .padding(16)
+            }
+            .coordinateSpace(name: "newEventScroll")
+            .onAppear {
+                scrollViewportHeight = geo.size.height
+            }
+            .onChange(of: geo.size.height) { _, newHeight in
+                scrollViewportHeight = newHeight
+            }
+            .onPreferenceChange(NewEventCreateButtonFrameKey.self) { frame in
+                inlineCreateButtonFrame = frame
+            }
+            .overlay(alignment: .bottom) {
+                if shouldShowFloatingCreateButton {
+                    floatingCreateButtonBar
+                }
+            }
+            .animation(.spring(response: 0.24, dampingFraction: 0.92), value: shouldShowFloatingCreateButton)
+        }
+    }
 
+    private var floatingCreateButtonBar: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [Color(.systemBackground).opacity(0), Color(.systemBackground).opacity(0.92)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 16)
+
+            VStack(spacing: 6) {
+                createEventButton
                 if let validationMessage {
                     Text(validationMessage)
                         .font(.caption)
@@ -126,12 +153,56 @@ struct NewEventView: View {
                         .transition(.opacity)
                 }
             }
-            .padding(.all)
-            .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
-            .padding(16)
-            
-
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+            .background(Color(.systemBackground).opacity(0.98))
         }
+        .ignoresSafeArea(edges: .bottom)
+        .shadow(color: .black.opacity(0.12), radius: 7, y: -2)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private var createEventButton: some View {
+        Button("Create event") {
+            createEvent()
+        }
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .buttonStyle(.glassProminent)
+        .buttonSizing(.flexible)
+        .disabled(!canCreateEvent)
+    }
+
+    private func createEvent() {
+        let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let canonicalDates = selectedDateComponents
+        guard !canonicalDates.isEmpty else { return }
+        if startDate >= endDate {
+            showValidation("Start time must be before end time.")
+            return
+        }
+
+        if hasDatesBeforeToday(canonicalDates) {
+            showValidation("Selected dates cannot be before today.")
+            return
+        }
+
+        if hasAlreadyPassedDateTime(canonicalDates, startDate: startDate) {
+            showValidation("Selected date and time cannot already be in the past.")
+            return
+        }
+
+        guard let url = makeEventURL(
+            name: trimmed,
+            start: startDate,
+            end: endDate,
+            selectedDates: canonicalDates
+        ) else { return }
+
+        validationMessage = nil
+        selectedDayKeys = dayKeys(from: canonicalDates, calendar: selectionCalendar)
+        actions.insertEventLink(url, trimmed.isEmpty ? "New Event" : trimmed)
     }
 
     private func showValidation(_ text: String) {
@@ -225,6 +296,17 @@ private struct DayKey: Hashable {
     let year: Int
     let month: Int
     let day: Int
+}
+
+private struct NewEventCreateButtonFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .null
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull {
+            value = next
+        }
+    }
 }
 
 private func dayKeys(from selection: Set<DateComponents>, calendar: Calendar) -> Set<DayKey> {

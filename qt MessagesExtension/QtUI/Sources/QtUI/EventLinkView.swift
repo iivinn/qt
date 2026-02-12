@@ -3,71 +3,175 @@ import SwiftUI
 struct EventLinkView: View {
     @Environment(\.messagesActions) private var actions
 
+    private static let currentResponderName = "You"
     private let config: EventGridConfig
     @State private var mode: AvailabilityMode = .add
-    @State private var selectedSlots: Set<SlotSelection> = []
+    @State private var selectedSlots: Set<SlotSelection>
+    @State private var responseRecords: [ResponderAvailabilityRecord]
     @State private var dragMode: DragMode?
     @State private var dragAnchor: SlotSelection?
     @State private var dragBaseSelection: Set<SlotSelection> = []
     @State private var inspectedSlot: SlotSelection?
+    @State private var scrollViewportHeight: CGFloat = 0
+    @State private var inlineSubmitButtonFrame: CGRect = .null
 
     init(eventURL: URL? = nil) {
-        self.config = EventGridConfig(url: eventURL)
+        let config = EventGridConfig(url: eventURL)
+        self.config = config
+        _selectedSlots = State(initialValue: config.selection(forResponderNamed: Self.currentResponderName))
+        _responseRecords = State(initialValue: config.responseRecords)
+    }
+
+    private var canSubmitAvailability: Bool {
+        mode == .add && (!selectedSlots.isEmpty || hasSubmittedAvailability)
+    }
+
+    private var hasSubmittedAvailability: Bool {
+        displayedRecords.contains {
+            $0.name.compare(Self.currentResponderName, options: .caseInsensitive) == .orderedSame
+        }
+    }
+
+    private var submitButtonTitle: String {
+        hasSubmittedAvailability ? "Edit availability" : "Submit availability"
+    }
+
+    private var displayedRecords: [ResponderAvailabilityRecord] {
+        if !responseRecords.isEmpty {
+            return responseRecords
+        }
+        return config.responseRecords
+    }
+
+    private var displayedVoteCounts: [SlotSelection: Int] {
+        let records = displayedRecords
+        if !records.isEmpty {
+            return aggregateVoteCounts(from: records)
+        }
+        return config.voteCounts
+    }
+
+    private var displayedResponses: Int {
+        let records = displayedRecords
+        if !records.isEmpty {
+            return records.count
+        }
+        return config.responses
+    }
+
+    private var shouldShowFloatingSubmitButton: Bool {
+        guard scrollViewportHeight > 0 else { return true }
+        guard !inlineSubmitButtonFrame.isNull else { return true }
+        let minVisibleY: CGFloat = 8
+        let maxVisibleY: CGFloat = scrollViewportHeight - 8
+        let isVerticallyVisible = inlineSubmitButtonFrame.maxY >= minVisibleY && inlineSubmitButtonFrame.minY <= maxVisibleY
+        return !isVerticallyVisible
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("📅 " + config.name)
-                    .font(.headline.weight(.semibold))
-                Text(mode == .add ? "Tap or drag to mark your availability" : "Tap a box to see who is available")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("📅 " + config.name)
+                        .font(.headline.weight(.semibold))
+                    Text(mode == .add ? "Tap or drag to mark your availability" : "Tap a box to see who is available")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
 
-                HStack(spacing: 8) {
-                    modeButton(title: "View availability", target: .view)
-                    modeButton(title: "Add availability", target: .add)
-                    Spacer(minLength: 0)
-                    clearSelectionButton
-                }
-
-                if mode == .view {
-                    tooltipView
-                }
-
-                GeometryReader { geo in
-                    let layout = GridLayout(size: geo.size, columnCount: config.dates.count, rowCount: config.slotMinutes.count)
-                    if mode == .add {
-                        gridContent(layout: layout)
-                            .contentShape(Rectangle())
-                            .simultaneousGesture(dragGesture(layout: layout))
-                    } else {
-                        gridContent(layout: layout)
-                            .contentShape(Rectangle())
+                    HStack(spacing: 8) {
+                        modeButton(title: "View availability", target: .view)
+                        modeButton(title: "Add availability", target: .add)
+                        Spacer(minLength: 0)
+                        clearSelectionButton
                     }
-                }
-                .frame(height: 480)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(.secondarySystemBackground))
-                )
 
-                Button("Submit availability") {
-                    submitAvailability()
+                    if mode == .view {
+                        tooltipView
+                    }
+
+                    GeometryReader { gridGeo in
+                        let layout = GridLayout(size: gridGeo.size, columnCount: config.dates.count, rowCount: config.slotMinutes.count)
+                        if mode == .add {
+                            gridContent(layout: layout)
+                                .contentShape(Rectangle())
+                                .simultaneousGesture(dragGesture(layout: layout))
+                        } else {
+                            gridContent(layout: layout)
+                                .contentShape(Rectangle())
+                        }
+                    }
+                    .frame(height: 480)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(.secondarySystemBackground))
+                    )
+
+                    submitAvailabilityButton
+                        .background(
+                            GeometryReader { buttonGeo in
+                                Color.clear.preference(
+                                    key: EventLinkSubmitButtonFrameKey.self,
+                                    value: buttonGeo.frame(in: .named("eventLinkScroll"))
+                                )
+                            }
+                        )
                 }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .center)
-                .contentShape(Rectangle())
-                .buttonStyle(.glassProminent)
-                .buttonSizing(.flexible)
-                .disabled(mode == .view || selectedSlots.isEmpty)
+                .padding(.all)
+                .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
+                .padding(16)
             }
-            .padding(.all)
-            .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
-            .padding(16)
+            .coordinateSpace(name: "eventLinkScroll")
+            .onAppear {
+                scrollViewportHeight = geo.size.height
+                applyPrepopulationIfNeeded()
+            }
+            .onChange(of: geo.size.height) { _, newHeight in
+                scrollViewportHeight = newHeight
+            }
+            .onPreferenceChange(EventLinkSubmitButtonFrameKey.self) { frame in
+                inlineSubmitButtonFrame = frame
+            }
+            .overlay(alignment: .bottom) {
+                if shouldShowFloatingSubmitButton {
+                    floatingSubmitAvailabilityBar
+                }
+            }
+            .animation(.spring(response: 0.24, dampingFraction: 0.92), value: shouldShowFloatingSubmitButton)
         }
+    }
+
+    private var floatingSubmitAvailabilityBar: some View {
+        VStack(spacing: 0) {
+            LinearGradient(
+                colors: [Color(.systemBackground).opacity(0), Color(.systemBackground).opacity(0.92)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 16)
+
+            submitAvailabilityButton
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 10)
+                .background(Color(.systemBackground).opacity(0.98))
+        }
+        .ignoresSafeArea(edges: .bottom)
+        .shadow(color: .black.opacity(0.12), radius: 7, y: -2)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+
+    private var submitAvailabilityButton: some View {
+        Button(submitButtonTitle) {
+            submitAvailability()
+        }
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: .infinity, alignment: .center)
+        .contentShape(Rectangle())
+        .buttonStyle(.glassProminent)
+        .buttonSizing(.flexible)
+        .disabled(!canSubmitAvailability)
     }
 
     private func modeButton(title: String, target: AvailabilityMode) -> some View {
@@ -116,17 +220,21 @@ struct EventLinkView: View {
     @ViewBuilder
     private var tooltipView: some View {
         if let inspectedSlot {
-            let people = config.peopleAvailable(dayIndex: inspectedSlot.dayIndex, slotIndex: inspectedSlot.slotIndex)
+            let statuses = participantStatuses(for: inspectedSlot)
             VStack(alignment: .leading, spacing: 4) {
                 Text(config.tooltipTitle(for: inspectedSlot))
                     .font(.caption.weight(.semibold))
-                if people.isEmpty {
+                if statuses.isEmpty {
                     Text("No one available yet.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    Text(people.joined(separator: ", "))
-                        .font(.caption)
+                    ForEach(statuses, id: \.name) { status in
+                        Text(status.name)
+                            .font(.caption)
+                            .foregroundStyle(status.isAvailable ? Color.primary : Color.secondary)
+                            .opacity(status.isAvailable ? 1 : 0.45)
+                    }
                 }
             }
             .padding(8)
@@ -188,7 +296,7 @@ struct EventLinkView: View {
     {
         let key = SlotSelection(dayIndex: dayIndex, slotIndex: row)
         let selected = selectedSlots.contains(key)
-        let heat = config.heatLevel(dayIndex: dayIndex, slotIndex: row)
+        let heat = heatLevel(for: key)
 
         // Precompute colors to avoid complex inline expressions that can stress the type-checker
         let baseFill: Color = {
@@ -285,12 +393,107 @@ struct EventLinkView: View {
     private func submitAvailability() {
         guard mode == .add else { return }
         let submission = selectedSlots
-        guard !submission.isEmpty else { return }
-        guard let updated = config.urlAfterSubmitting(selection: submission) else { return }
-        selectedSlots.removeAll()
+        let editingExisting = hasSubmittedAvailability
+        guard !submission.isEmpty || editingExisting else { return }
+        let currentRecords = displayedRecords
+        guard let updated = config.urlAfterSubmitting(
+            selection: submission,
+            responderName: Self.currentResponderName,
+            existingRecords: currentRecords
+        ) else { return }
+        responseRecords = Self.upsertRecord(
+            records: currentRecords,
+            responderName: Self.currentResponderName,
+            slots: submission
+        )
         inspectedSlot = nil
         actions.insertEventLink(updated, config.name)
         actions.requestCompact()
+    }
+
+    private func heatLevel(for key: SlotSelection) -> Double? {
+        guard displayedResponses > 0 else { return nil }
+        let count = displayedVoteCounts[key] ?? 0
+        guard count > 0 else { return nil }
+        let maxCount = max(displayedVoteCounts.values.max() ?? 0, 1)
+        return Double(count) / Double(maxCount)
+    }
+
+    private func participantStatuses(for slot: SlotSelection) -> [ParticipantStatus] {
+        let records = displayedRecords
+        guard !records.isEmpty else { return [] }
+        return records
+            .map { ParticipantStatus(name: $0.name, isAvailable: $0.slots.contains(slot)) }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    private func aggregateVoteCounts(from records: [ResponderAvailabilityRecord]) -> [SlotSelection: Int] {
+        var counts: [SlotSelection: Int] = [:]
+        for record in records {
+            for slot in record.slots {
+                counts[slot, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private func applyPrepopulationIfNeeded() {
+        guard responseRecords.isEmpty else { return }
+        guard config.responses == 0, config.voteCounts.isEmpty else { return }
+        responseRecords = Self.generateDemoRecords(
+            names: config.participantNames,
+            dayCount: config.dates.count,
+            slotCount: config.slotMinutes.count
+        )
+    }
+
+    private static func generateDemoRecords(
+        names: [String],
+        dayCount: Int,
+        slotCount: Int
+    ) -> [ResponderAvailabilityRecord] {
+        guard dayCount > 0, slotCount > 0 else { return [] }
+        var records: [ResponderAvailabilityRecord] = []
+
+        for (personIndex, name) in names.enumerated() {
+            var slots: Set<SlotSelection> = []
+
+            for day in 0..<dayCount {
+                if (personIndex + day) % 3 == 1 { continue }
+                let base = (personIndex * 3 + day * 2) % max(slotCount, 1)
+                let span = min(4 + (personIndex % 2), slotCount)
+                for offset in 0..<span {
+                    let slot = (base + offset) % slotCount
+                    slots.insert(SlotSelection(dayIndex: day, slotIndex: slot))
+                }
+            }
+
+            if !slots.isEmpty {
+                records.append(ResponderAvailabilityRecord(name: name, slots: slots))
+            }
+        }
+
+        return records
+    }
+
+    private static func upsertRecord(
+        records: [ResponderAvailabilityRecord],
+        responderName: String,
+        slots: Set<SlotSelection>
+    ) -> [ResponderAvailabilityRecord] {
+        var next = records
+        if let index = next.firstIndex(where: {
+            $0.name.compare(responderName, options: .caseInsensitive) == .orderedSame
+        }) {
+            if slots.isEmpty {
+                next.remove(at: index)
+            } else {
+                next[index] = ResponderAvailabilityRecord(name: responderName, slots: slots)
+            }
+        } else if !slots.isEmpty {
+            next.append(ResponderAvailabilityRecord(name: responderName, slots: slots))
+        }
+        return next
     }
 
     private func dateFromMinutes(_ minuteOfDay: Int) -> Date {
@@ -318,6 +521,27 @@ private enum AvailabilityMode {
 private struct SlotSelection: Hashable {
     let dayIndex: Int
     let slotIndex: Int
+}
+
+private struct ParticipantStatus {
+    let name: String
+    let isAvailable: Bool
+}
+
+private struct ResponderAvailabilityRecord {
+    let name: String
+    let slots: Set<SlotSelection>
+}
+
+private struct EventLinkSubmitButtonFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .null
+
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if !next.isNull {
+            value = next
+        }
+    }
 }
 
 private struct GridLayout {
@@ -376,9 +600,14 @@ private struct EventGridConfig {
     let hourFormatter: DateFormatter
     let responses: Int
     let voteCounts: [SlotSelection: Int]
+    let responseRecords: [ResponderAvailabilityRecord]
+    let participantNames: [String]
     let startValue: String?
     let endValue: String?
     let datesValue: String?
+    let participantsValue: String?
+
+    static let defaultParticipantNames: [String] = ["Alex", "Maya", "Chris", "Jordan", "Sam"]
 
     init(url: URL?) {
         self.sourceURL = url
@@ -426,6 +655,9 @@ private struct EventGridConfig {
 
         self.responses = Int(params.first(where: { $0.name == "responses" })?.value ?? "") ?? 0
         self.voteCounts = Self.parseVoteCounts(params.first(where: { $0.name == "votes" })?.value)
+        self.responseRecords = Self.parseResponseRecords(params.first(where: { $0.name == "records" })?.value)
+        self.participantsValue = params.first(where: { $0.name == "participants" })?.value
+        self.participantNames = Self.parseParticipantNames(self.participantsValue)
     }
 
     func heatLevel(dayIndex: Int, slotIndex: Int) -> Double? {
@@ -458,23 +690,27 @@ private struct EventGridConfig {
         return "\(day) • \(time)"
     }
 
-    func peopleAvailable(dayIndex: Int, slotIndex: Int) -> [String] {
-        let key = SlotSelection(dayIndex: dayIndex, slotIndex: slotIndex)
-        let count = max(0, voteCounts[key] ?? 0)
-        guard count > 0 else { return [] }
-        return (1...count).map { "Person \($0)" }
+    func selection(forResponderNamed name: String) -> Set<SlotSelection> {
+        responseRecords.first {
+            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
+        }?.slots ?? []
     }
 
-    func urlAfterSubmitting(selection: Set<SlotSelection>) -> URL? {
+    func urlAfterSubmitting(
+        selection: Set<SlotSelection>,
+        responderName: String,
+        existingRecords: [ResponderAvailabilityRecord]
+    ) -> URL? {
         var comps = URLComponents(url: sourceURL ?? URL(string: "qt://event")!, resolvingAgainstBaseURL: false)
-        var counts = voteCounts
-
-        for slot in selection {
-            counts[slot, default: 0] += 1
-        }
-
-        let nextResponses = responses + 1
+        let nextRecords = Self.upsertRecord(
+            records: existingRecords,
+            responderName: responderName,
+            slots: selection
+        )
+        let counts = Self.voteCounts(from: nextRecords)
+        let nextResponses = nextRecords.count
         let votesValue = Self.encodeVoteCounts(counts)
+        let recordsValue = Self.encodeResponseRecords(nextRecords)
 
         var items: [URLQueryItem] = []
         items.append(URLQueryItem(name: "name", value: name))
@@ -502,9 +738,15 @@ private struct EventGridConfig {
             let datesValue = dates.map { dateFormatter.string(from: $0) }.joined(separator: ",")
             items.append(URLQueryItem(name: "dates", value: datesValue))
         }
+        if let participantsValue {
+            items.append(URLQueryItem(name: "participants", value: participantsValue))
+        } else if !participantNames.isEmpty {
+            items.append(URLQueryItem(name: "participants", value: participantNames.joined(separator: ",")))
+        }
 
         items.append(URLQueryItem(name: "responses", value: String(nextResponses)))
         items.append(URLQueryItem(name: "votes", value: votesValue))
+        items.append(URLQueryItem(name: "records", value: recordsValue))
 
         comps?.queryItems = items
         return comps?.url
@@ -546,6 +788,101 @@ private struct EventGridConfig {
         return entries
             .map { "\($0.key.dayIndex)-\($0.key.slotIndex):\($0.value)" }
             .joined(separator: ";")
+    }
+
+    private static func upsertRecord(
+        records: [ResponderAvailabilityRecord],
+        responderName: String,
+        slots: Set<SlotSelection>
+    ) -> [ResponderAvailabilityRecord] {
+        var next = records
+        if let index = next.firstIndex(where: {
+            $0.name.compare(responderName, options: .caseInsensitive) == .orderedSame
+        }) {
+            if slots.isEmpty {
+                next.remove(at: index)
+            } else {
+                next[index] = ResponderAvailabilityRecord(name: responderName, slots: slots)
+            }
+        } else if !slots.isEmpty {
+            next.append(ResponderAvailabilityRecord(name: responderName, slots: slots))
+        }
+        return next
+    }
+
+    private static func voteCounts(from records: [ResponderAvailabilityRecord]) -> [SlotSelection: Int] {
+        var counts: [SlotSelection: Int] = [:]
+        for record in records {
+            for slot in record.slots {
+                counts[slot, default: 0] += 1
+            }
+        }
+        return counts
+    }
+
+    private static func parseResponseRecords(_ raw: String?) -> [ResponderAvailabilityRecord] {
+        guard let raw, !raw.isEmpty else { return [] }
+        var records: [ResponderAvailabilityRecord] = []
+
+        for token in raw.split(separator: "|") {
+            let parts = token.split(separator: "~", maxSplits: 1, omittingEmptySubsequences: false)
+            guard !parts.isEmpty else { continue }
+            let name = String(parts[0]).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+
+            var slots: Set<SlotSelection> = []
+            if parts.count > 1 {
+                for indexToken in parts[1].split(separator: ",") {
+                    let indices = indexToken.split(separator: "-")
+                    guard indices.count == 2,
+                          let day = Int(indices[0]),
+                          let slot = Int(indices[1]),
+                          day >= 0,
+                          slot >= 0 else { continue }
+                    slots.insert(SlotSelection(dayIndex: day, slotIndex: slot))
+                }
+            }
+
+            records.append(ResponderAvailabilityRecord(name: name, slots: slots))
+        }
+
+        return records
+    }
+
+    private static func parseParticipantNames(_ raw: String?) -> [String] {
+        guard let raw, !raw.isEmpty else { return defaultParticipantNames }
+
+        var names: [String] = []
+        var seen = Set<String>()
+        for token in raw.split(separator: ",") {
+            let name = String(token).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty else { continue }
+            if seen.insert(name).inserted {
+                names.append(name)
+            }
+        }
+        return names.isEmpty ? defaultParticipantNames : names
+    }
+
+    private static func encodeResponseRecords(_ records: [ResponderAvailabilityRecord]) -> String {
+        records
+            .map { record in
+                let safeName = record.name
+                    .replacingOccurrences(of: "|", with: " ")
+                    .replacingOccurrences(of: "~", with: " ")
+                    .replacingOccurrences(of: ",", with: " ")
+                let slotValue = record.slots
+                    .sorted {
+                        if $0.dayIndex == $1.dayIndex {
+                            return $0.slotIndex < $1.slotIndex
+                        }
+                        return $0.dayIndex < $1.dayIndex
+                    }
+                    .map { "\($0.dayIndex)-\($0.slotIndex)" }
+                    .joined(separator: ",")
+                return "\(safeName)~\(slotValue)"
+            }
+            .joined(separator: "|")
     }
 
     private static func minuteRange(start: Date?, end: Date?) -> (Int, Int) {

@@ -39,21 +39,19 @@ struct ContentView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(Color.gray.opacity(0.25))
-                .frame(width: 32, height: 32)
-                .overlay(Image(systemName: "person.fill").foregroundStyle(.white).font(.caption))
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Ivin")
-                    .font(.headline.weight(.semibold))
-                Text("iMessage")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        HStack {
+            Spacer(minLength: 0)
+            VStack(spacing: 4) {
+                Text("🎲")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Circle().fill(Color.blue))
+                Text("DND 🐉")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
             }
-
-            Spacer()
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -63,7 +61,9 @@ struct ContentView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 10) {
-                    introRow
+                    ForEach(Self.groupHistoryMessages.indices, id: \.self) { index in
+                        historyRow(Self.groupHistoryMessages[index])
+                    }
 
                     ForEach(eventMessages) { message in
                         transcriptRow(message)
@@ -88,22 +88,27 @@ struct ContentView: View {
         }
     }
 
-    private var introRow: some View {
+    private func historyRow(_ message: GroupHistoryMessage) -> some View {
         HStack(alignment: .bottom, spacing: 8) {
             Circle()
-                .fill(Color.gray.opacity(0.25))
+                .fill(message.avatarColor.opacity(0.9))
                 .frame(width: 26, height: 26)
-                .overlay(Image(systemName: "person.fill").foregroundStyle(.white).font(.caption2))
+                .overlay(Text(message.initials).font(.caption2.weight(.semibold)).foregroundStyle(.white))
 
-            Text("Hey guys! What's the best day for DND?")
-                .font(.footnote)
-                .foregroundStyle(.primary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color(.systemBackground))
-                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.sender)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(message.text)
+                    .font(.footnote)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(Color(.systemBackground))
+                    )
+            }
 
             Spacer(minLength: 44)
         }
@@ -112,71 +117,114 @@ struct ContentView: View {
     private func transcriptRow(_ message: EventMessage) -> some View {
         let isSelected = selectedMessageID == message.id
         let preview = EventBubblePreview(url: message.url, fallbackTitle: message.title)
+        let isIncoming = message.direction == .incoming
 
         return HStack(alignment: .bottom, spacing: 8) {
-            Spacer(minLength: 44)
-
-            Button {
-                selectedMessageID = message.id
-                panelMessageID = message.id
-                withAnimation(.easeOut(duration: 0.18)) {
-                    panelDragOffset = 0
-                    panelState = .card
+            if isIncoming {
+                let sender = message.senderName ?? "Ken"
+                avatar(sender: sender, fallbackColor: .gray)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(sender)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    transcriptBubble(
+                        message: message,
+                        preview: preview,
+                        isSelected: isSelected,
+                        isIncoming: true
+                    )
                 }
-            } label: {
-                VStack(alignment: .leading, spacing: 7) {
-                    if let image = preview.image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 108)
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                    }
-
-                    Text(preview.caption)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(2)
-
-                    HStack(spacing: 8) {
-                        Text(preview.subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.86))
-
-                        Spacer(minLength: 0)
-
-                        Text(Self.timeFormatter.string(from: message.updatedAt ?? message.sentAt))
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(0.82))
-                    }
-                }
-                .padding(10)
-                .frame(width: 266, alignment: .leading)
-                .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.blue)
+                Spacer(minLength: 44)
+            } else {
+                Spacer(minLength: 44)
+                transcriptBubble(
+                    message: message,
+                    preview: preview,
+                    isSelected: isSelected,
+                    isIncoming: false
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(isSelected ? Color.white.opacity(0.8) : Color.clear, lineWidth: 1.25)
-                )
-                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                avatar(sender: "You", fallbackColor: .blue)
             }
-            .buttonStyle(.plain)
-
-            Circle()
-                .fill(Color.blue.opacity(0.75))
-                .frame(width: 24, height: 24)
-                .overlay(Image(systemName: "person.fill").foregroundStyle(.white).font(.caption2))
         }
+    }
+
+    private func transcriptBubble(
+        message: EventMessage,
+        preview: EventBubblePreview,
+        isSelected: Bool,
+        isIncoming: Bool
+    ) -> some View {
+        let bubbleFill = isIncoming ? Color(.systemBackground) : Color.blue
+        let titleColor = isIncoming ? Color.primary : Color.white
+        let subtitleColor = isIncoming ? Color.secondary : Color.white.opacity(0.86)
+        let timeColor = isIncoming ? Color.secondary.opacity(0.85) : Color.white.opacity(0.82)
+        let selectedStroke = isIncoming ? Color.gray.opacity(0.5) : Color.white.opacity(0.8)
+
+        return Button {
+            selectedMessageID = message.id
+            panelMessageID = message.id
+            withAnimation(.easeOut(duration: 0.18)) {
+                panelDragOffset = 0
+                panelState = .card
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 7) {
+                if let image = preview.image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 108)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
+                Text(preview.caption)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(titleColor)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(2)
+
+                HStack(spacing: 8) {
+                    Text(preview.subtitle)
+                        .font(.caption2)
+                        .foregroundStyle(subtitleColor)
+
+                    Spacer(minLength: 0)
+
+                    Text(Self.timeFormatter.string(from: message.updatedAt ?? message.sentAt))
+                        .font(.caption2)
+                        .foregroundStyle(timeColor)
+                }
+            }
+            .padding(10)
+            .frame(width: 266, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(bubbleFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(isSelected ? selectedStroke : Color.clear, lineWidth: 1.25)
+            )
+            .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func avatar(sender: String, fallbackColor: Color) -> some View {
+        let tone = colorForSender(sender, fallback: fallbackColor)
+        let initials = senderInitials(sender)
+
+        return Circle()
+            .fill(tone.opacity(0.85))
+            .frame(width: 24, height: 24)
+            .overlay(Text(initials).font(.caption2.weight(.semibold)).foregroundStyle(.white))
     }
 
     private var composerBar: some View {
         HStack(spacing: 8) {
             HStack(spacing: 8) {
-                TextField("iMessage", text: $draftText)
+                TextField("Tap the blue button to create an event!", text: $draftText)
                     .textFieldStyle(.plain)
                     .font(.subheadline)
 
@@ -377,16 +425,27 @@ struct ContentView: View {
             },
             insertText: { _ in },
             insertEventLink: { url, title in
+                let participantsURL = eventURLWithParticipants(url)
                 withAnimation(.easeInOut(duration: 0.2)) {
                     let targetMessageID = panelMessageID ?? selectedMessageID
                     if let targetMessageID,
                        let index = eventMessages.firstIndex(where: { $0.id == targetMessageID }) {
-                        eventMessages[index].url = url
+                        eventMessages[index].url = participantsURL
                         eventMessages[index].title = title
                         eventMessages[index].updatedAt = Date()
+                        eventMessages[index].direction = .outgoing
+                        eventMessages[index].senderName = nil
                         transcriptScrollTarget = targetMessageID
                     } else {
-                        let message = EventMessage(url: url, title: title, sentAt: Date(), updatedAt: nil)
+                        let incomingURL = incomingEventURL(withKenAvailabilityFrom: participantsURL)
+                        let message = EventMessage(
+                            url: incomingURL,
+                            title: title,
+                            sentAt: Date(),
+                            updatedAt: nil,
+                            direction: .incoming,
+                            senderName: "Ken"
+                        )
                         eventMessages.append(message)
                         transcriptScrollTarget = message.id
                     }
@@ -404,12 +463,231 @@ struct ContentView: View {
         )
     }
 
+    private func eventURLWithParticipants(_ url: URL) -> URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        var items = components?.queryItems ?? []
+        items.removeAll { $0.name == "participants" }
+        let value = Self.chatParticipantNames.joined(separator: ",")
+        if !value.isEmpty {
+            items.append(URLQueryItem(name: "participants", value: value))
+        }
+        components?.queryItems = items
+        return components?.url ?? url
+    }
+
+    private func incomingEventURL(withKenAvailabilityFrom url: URL) -> URL {
+        var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        var items = components?.queryItems ?? []
+
+        let existingResponses = Int(value(for: "responses", in: items) ?? "") ?? 0
+        let existingVotes = value(for: "votes", in: items) ?? ""
+        let existingRecords = value(for: "records", in: items) ?? ""
+        if existingResponses > 0 || !existingVotes.isEmpty || !existingRecords.isEmpty {
+            return url
+        }
+
+        let dayCount = max(1, parseDates(queryItems: items).count)
+        let slotMinutes = parseSlotMinutes(queryItems: items)
+        let slotCount = max(1, slotMinutes.count)
+        let participantNames = parseParticipantNames(queryItems: items)
+        let records = seedRecords(
+            names: participantNames,
+            dayCount: dayCount,
+            slotCount: slotCount
+        )
+        let votes = encodeVotes(from: records)
+        let recordsValue = encodeRecords(from: records)
+
+        set(value: String(records.count), for: "responses", in: &items)
+        set(value: votes, for: "votes", in: &items)
+        set(value: recordsValue, for: "records", in: &items)
+        components?.queryItems = items
+        return components?.url ?? url
+    }
+
+    private func parseParticipantNames(queryItems: [URLQueryItem]) -> [String] {
+        let raw = queryItems.first(where: { $0.name == "participants" })?.value ?? ""
+        var seen = Set<String>()
+        let parsed = raw
+            .split(separator: ",")
+            .compactMap { token -> String? in
+                let name = String(token).trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return nil }
+                return seen.insert(name).inserted ? name : nil
+            }
+        if !parsed.isEmpty {
+            return parsed
+        }
+        return Self.chatParticipantNames
+    }
+
+    private func seedRecords(
+        names: [String],
+        dayCount: Int,
+        slotCount: Int
+    ) -> [(name: String, slots: Set<SlotKey>)] {
+        guard dayCount > 0, slotCount > 0 else { return [] }
+        var records: [(name: String, slots: Set<SlotKey>)] = []
+
+        for (personIndex, name) in names.enumerated() {
+            var slots: Set<SlotKey> = []
+
+            for day in 0..<dayCount {
+                if (personIndex + day) % 3 == 1 { continue }
+                let base = (personIndex * 3 + day * 2) % max(slotCount, 1)
+                let span = min(4 + (personIndex % 2), slotCount)
+                for offset in 0..<span {
+                    let slot = (base + offset) % slotCount
+                    slots.insert(SlotKey(dayIndex: day, slotIndex: slot))
+                }
+            }
+
+            if !slots.isEmpty {
+                records.append((name: name, slots: slots))
+            }
+        }
+
+        return records
+    }
+
+    private func encodeVotes(from records: [(name: String, slots: Set<SlotKey>)]) -> String {
+        var counts: [SlotKey: Int] = [:]
+        for record in records {
+            for slot in record.slots {
+                counts[slot, default: 0] += 1
+            }
+        }
+        return counts
+            .sorted {
+                if $0.key.dayIndex == $1.key.dayIndex {
+                    return $0.key.slotIndex < $1.key.slotIndex
+                }
+                return $0.key.dayIndex < $1.key.dayIndex
+            }
+            .map { "\($0.key.dayIndex)-\($0.key.slotIndex):\($0.value)" }
+            .joined(separator: ";")
+    }
+
+    private func encodeRecords(from records: [(name: String, slots: Set<SlotKey>)]) -> String {
+        records
+            .map { record in
+                let safeName = record.name
+                    .replacingOccurrences(of: "|", with: " ")
+                    .replacingOccurrences(of: "~", with: " ")
+                    .replacingOccurrences(of: ",", with: " ")
+
+                let slotValue = record.slots
+                    .sorted {
+                        if $0.dayIndex == $1.dayIndex {
+                            return $0.slotIndex < $1.slotIndex
+                        }
+                        return $0.dayIndex < $1.dayIndex
+                    }
+                    .map { "\($0.dayIndex)-\($0.slotIndex)" }
+                    .joined(separator: ",")
+                return "\(safeName)~\(slotValue)"
+            }
+            .joined(separator: "|")
+    }
+
+    private func value(for name: String, in items: [URLQueryItem]) -> String? {
+        items.first(where: { $0.name == name })?.value
+    }
+
+    private func set(value: String, for name: String, in items: inout [URLQueryItem]) {
+        items.removeAll { $0.name == name }
+        items.append(URLQueryItem(name: name, value: value))
+    }
+
+    private func parseDates(queryItems: [URLQueryItem]) -> [Date] {
+        let dateParser = DateFormatter()
+        dateParser.calendar = Calendar.current
+        dateParser.locale = Locale(identifier: "en_US_POSIX")
+        dateParser.timeZone = TimeZone.current
+        dateParser.dateFormat = "yyyy-MM-dd"
+
+        let rawDates = queryItems.first(where: { $0.name == "dates" })?.value ?? ""
+        let parsedDates = rawDates
+            .split(separator: ",")
+            .compactMap { dateParser.date(from: String($0)) }
+            .sorted()
+        return parsedDates.isEmpty ? [Calendar.current.startOfDay(for: Date())] : parsedDates
+    }
+
+    private func parseSlotMinutes(queryItems: [URLQueryItem]) -> [Int] {
+        let start = parseISODate(queryItems.first(where: { $0.name == "start" })?.value)
+        let end = parseISODate(queryItems.first(where: { $0.name == "end" })?.value)
+        let range = minuteRange(start: start, end: end)
+        return stride(from: range.start, to: range.end, by: 30).map { $0 }
+    }
+
+    private func parseISODate(_ raw: String?) -> Date? {
+        guard let raw else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: raw) { return date }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: raw)
+    }
+
+    private func minuteRange(start: Date?, end: Date?) -> (start: Int, end: Int) {
+        let cal = Calendar.current
+        let defaultStart = 9 * 60
+        let defaultEnd = 17 * 60
+        guard let start, let end else { return (defaultStart, defaultEnd) }
+
+        let startParts = cal.dateComponents([.hour, .minute], from: start)
+        let endParts = cal.dateComponents([.hour, .minute], from: end)
+        let rawStart = (startParts.hour ?? 9) * 60 + (startParts.minute ?? 0)
+        let rawEnd = (endParts.hour ?? 17) * 60 + (endParts.minute ?? 0)
+
+        let snappedStart = max(0, (rawStart / 30) * 30)
+        let snappedEnd = min(24 * 60, ((rawEnd + 29) / 30) * 30)
+        return snappedEnd > snappedStart ? (snappedStart, snappedEnd) : (defaultStart, defaultEnd)
+    }
+
     private static let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.timeStyle = .short
         formatter.dateStyle = .none
         return formatter
     }()
+
+    private static let groupHistoryMessages: [GroupHistoryMessage] = [
+        GroupHistoryMessage(sender: "Abdul", text: "Hey guys! When's everyone free for DND?", avatarColor: .teal),
+        GroupHistoryMessage(sender: "Joseph", text: "probably thursday or friday", avatarColor: .orange),
+        GroupHistoryMessage(sender: "Bao", text: "Not free Friday, only Thursday", avatarColor: .indigo),
+        GroupHistoryMessage(sender: "Ham", text: "i work thursday...", avatarColor: .mint),
+        GroupHistoryMessage(sender: "Ken", text: "I can do Wednesday!", avatarColor: .pink)
+    ]
+
+    private static let chatParticipantNames: [String] = {
+        var seen = Set<String>()
+        var names: [String] = []
+        for message in groupHistoryMessages {
+            if seen.insert(message.sender).inserted {
+                names.append(message.sender)
+            }
+        }
+        return names
+    }()
+
+    private func colorForSender(_ sender: String, fallback: Color) -> Color {
+        if let known = Self.groupHistoryMessages.first(where: {
+            $0.sender.compare(sender, options: .caseInsensitive) == .orderedSame
+        }) {
+            return known.avatarColor
+        }
+        return fallback
+    }
+
+    private func senderInitials(_ sender: String) -> String {
+        let parts = sender.split(separator: " ")
+        if let first = parts.first?.first {
+            return String(first).uppercased()
+        }
+        return "?"
+    }
 }
 
 private enum PanelState {
@@ -446,13 +724,44 @@ private struct EventMessage: Identifiable {
     var title: String
     let sentAt: Date
     var updatedAt: Date?
+    var direction: EventMessageDirection
+    var senderName: String?
 
-    init(id: UUID = UUID(), url: URL, title: String, sentAt: Date, updatedAt: Date?) {
+    init(
+        id: UUID = UUID(),
+        url: URL,
+        title: String,
+        sentAt: Date,
+        updatedAt: Date?,
+        direction: EventMessageDirection = .outgoing,
+        senderName: String? = nil
+    ) {
         self.id = id
         self.url = url
         self.title = title
         self.sentAt = sentAt
         self.updatedAt = updatedAt
+        self.direction = direction
+        self.senderName = senderName
+    }
+}
+
+private enum EventMessageDirection {
+    case incoming
+    case outgoing
+}
+
+private struct GroupHistoryMessage {
+    let sender: String
+    let text: String
+    let avatarColor: Color
+
+    var initials: String {
+        let parts = sender.split(separator: " ")
+        if let first = parts.first?.first {
+            return String(first).uppercased()
+        }
+        return "?"
     }
 }
 
