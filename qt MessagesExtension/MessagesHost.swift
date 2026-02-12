@@ -72,7 +72,8 @@ private struct EventMessagePreview {
     init(url: URL, fallbackTitle: String) {
         let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         let name = queryItems.first(where: { $0.name == "name" })?.value
-        self.caption = (name?.isEmpty == false) ? (name ?? fallbackTitle) : fallbackTitle
+        let resolvedName = (name?.isEmpty == false) ? (name ?? fallbackTitle) : fallbackTitle
+        self.caption = "When are you available for \(resolvedName)?"
 
         let dateParser = DateFormatter()
         dateParser.calendar = Calendar.current
@@ -183,8 +184,8 @@ private struct EventMessagePreview {
 
                     var count = 0
                     let baseSlot = row * 2
-                    for quarter in 0..<2 {
-                        let slotIndex = baseSlot + quarter
+                    for bucket in 0..<2 {
+                        let slotIndex = baseSlot + bucket
                         guard slotIndex < slotMinutes.count else { continue }
                         count = max(count, voteCounts[SlotKey(dayIndex: dayIndex, slotIndex: slotIndex)] ?? 0)
                     }

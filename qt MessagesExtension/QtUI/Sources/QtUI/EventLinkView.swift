@@ -203,6 +203,8 @@ struct EventLinkView: View {
         let showSelection = (mode == .add) && selected
         let selectionFill: Color = showSelection ? Color.blue.opacity(0.25) : Color.clear
         let selectionStrokeColor: Color = showSelection ? Color.blue.opacity(0.96) : Color.clear
+        let showInspected = (mode == .view) && (inspectedSlot == key)
+        let inspectedStrokeColor: Color = showInspected ? Color.gray.opacity(0.9) : Color.clear
 
         return Rectangle()
             .fill(baseFill)
@@ -218,8 +220,13 @@ struct EventLinkView: View {
                 Rectangle()
                     .stroke(selectionStrokeColor, lineWidth: 1.1)
             )
+            .overlay(
+                Rectangle()
+                    .stroke(inspectedStrokeColor, lineWidth: 1.4)
+            )
             .contentShape(Rectangle())
             .animation(.easeInOut(duration: 0.14), value: showSelection)
+            .animation(.easeInOut(duration: 0.12), value: showInspected)
             .onTapGesture {
                 if mode == .view {
                     inspectedSlot = key
