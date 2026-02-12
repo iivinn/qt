@@ -284,8 +284,13 @@ struct EventLinkView: View {
 
     private func submitAvailability() {
         guard mode == .add else { return }
-        guard let updated = config.urlAfterSubmitting(selection: selectedSlots) else { return }
+        let submission = selectedSlots
+        guard !submission.isEmpty else { return }
+        guard let updated = config.urlAfterSubmitting(selection: submission) else { return }
+        selectedSlots.removeAll()
+        inspectedSlot = nil
         actions.insertEventLink(updated, config.name)
+        actions.requestCompact()
     }
 
     private func dateFromMinutes(_ minuteOfDay: Int) -> Date {

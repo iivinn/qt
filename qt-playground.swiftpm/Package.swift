@@ -19,7 +19,7 @@ let package = Package(
             bundleIdentifier: "com.ivinn.qt-playground",
             displayVersion: "1.0",
             bundleVersion: "1",
-            appIcon: .placeholder(icon: .pencil),
+            appIcon: .asset("AppIcon"),
             accentColor: .presetColor(.indigo),
             supportedDeviceFamilies: [
                 .pad,
@@ -30,7 +30,8 @@ let package = Package(
                 .landscapeRight,
                 .landscapeLeft,
                 .portraitUpsideDown(.when(deviceFamilies: [.pad]))
-            ]
+            ],
+            appCategory: .utilities
         )
     ],
     dependencies: [
