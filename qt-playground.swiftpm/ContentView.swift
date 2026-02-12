@@ -8,8 +8,11 @@ struct ContentView: View {
     @State private var panelMessageID: UUID?
     @State private var transcriptScrollTarget: UUID?
     @State private var draftText: String = ""
-    @State private var panelExpanded: Bool = false
+    @State private var panelState: PanelState = .collapsed
     @State private var panelSessionID = UUID()
+    @State private var panelDragOffset: CGFloat = 0
+    @State private var panelIsDragging: Bool = false
+    @State private var panelIsSettling: Bool = false
 
     private var selectedMessageURL: URL? {
         let targetID = panelMessageID ?? selectedMessageID
@@ -17,24 +20,22 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            transcriptPanel
-            composerBar
+        GeometryReader { geo in
+            ZStack(alignment: .bottom) {
+                VStack(spacing: 0) {
+                    header
+                    transcriptPanel
+                    composerBar
+                }
+                .background(Color(.systemGroupedBackground))
+                .ignoresSafeArea(.keyboard, edges: .bottom)
 
-            Divider()
-                .opacity(panelExpanded ? 1 : 0)
-
-            QtUI.ContentView(selectedMessageURL: selectedMessageURL)
-                .id(panelSessionID)
-                .environment(\.messagesActions, prototypeActions)
-                .frame(height: panelExpanded ? 430 : 0)
-                .opacity(panelExpanded ? 1 : 0)
-                .clipped()
+                panelSheet(in: geo)
+                    .allowsHitTesting(panelState != .collapsed)
+                    .opacity(panelState == .collapsed ? 0 : 1)
+            }
+            .background(Color(.systemGroupedBackground))
         }
-        .animation(.easeInOut(duration: 0.22), value: panelExpanded)
-        .background(Color(.systemGroupedBackground))
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private var header: some View {
@@ -118,7 +119,10 @@ struct ContentView: View {
             Button {
                 selectedMessageID = message.id
                 panelMessageID = message.id
-                panelExpanded = true
+                withAnimation(.easeOut(duration: 0.18)) {
+                    panelDragOffset = 0
+                    panelState = .card
+                }
             } label: {
                 VStack(alignment: .leading, spacing: 7) {
                     if let image = preview.image {
@@ -179,7 +183,10 @@ struct ContentView: View {
                 Button {
                     selectedMessageID = nil
                     panelMessageID = nil
-                    panelExpanded = true
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        panelDragOffset = 0
+                        panelState = .card
+                    }
                     panelSessionID = UUID()
                 } label: {
                     Image(systemName: "calendar.badge.plus")
@@ -217,16 +224,156 @@ struct ContentView: View {
         .background(Color(.secondarySystemBackground))
     }
 
+    private func panelSheet(in geo: GeometryProxy) -> some View {
+        let heights = PanelHeights(geo: geo)
+        let collapsedOffset = panelYOffset(for: .collapsed, heights: heights)
+        let baseOffset = panelYOffset(for: panelState, heights: heights)
+        let liveOffset = clamp(baseOffset + panelDragOffset, min: 0, max: collapsedOffset)
+        let isFullscreen = panelState == .full
+        let cornerRadius: CGFloat = isFullscreen ? 0 : 18
+        let horizontalInset: CGFloat = isFullscreen ? 0 : 6
+        let bottomInset: CGFloat = isFullscreen ? 0 : 6
+        let shadowOpacity: CGFloat = isFullscreen ? 0 : 0.16
+
+        return VStack(spacing: 0) {
+            ZStack {
+                Capsule()
+                    .fill(Color.secondary.opacity(0.45))
+                    .frame(width: 38, height: 5)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 48)
+            .contentShape(Rectangle())
+            .highPriorityGesture(panelDragGesture(heights: heights))
+
+            Divider()
+
+            QtUI.ContentView(selectedMessageURL: selectedMessageURL)
+                .id(panelSessionID)
+                .environment(\.messagesActions, prototypeActions)
+                .allowsHitTesting(!(panelIsDragging || panelIsSettling))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: heights.full, alignment: .top)
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(Color.black.opacity(shadowOpacity * 0.5), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(shadowOpacity), radius: 8, y: -1)
+        .offset(y: liveOffset)
+        .padding(.horizontal, horizontalInset)
+        .padding(.bottom, bottomInset)
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private func panelDragGesture(heights: PanelHeights) -> some Gesture {
+        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+            .onChanged { value in
+                panelIsDragging = true
+                panelDragOffset = value.translation.height
+            }
+            .onEnded { value in
+                let baseOffset = panelYOffset(for: panelState, heights: heights)
+                let collapsedOffset = panelYOffset(for: .collapsed, heights: heights)
+                let projectedOffset = clamp(baseOffset + value.translation.height, min: 0, max: collapsedOffset)
+                let nextState = targetPanelState(
+                    current: panelState,
+                    translation: value.translation.height,
+                    projectedOffset: projectedOffset,
+                    heights: heights
+                )
+
+                panelIsSettling = true
+                panelDragOffset = 0
+                panelState = nextState
+                if nextState == .collapsed {
+                    selectedMessageID = nil
+                    panelMessageID = nil
+                }
+
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
+                    panelIsDragging = false
+                    panelIsSettling = false
+                }
+            }
+    }
+
+    private func panelYOffset(for state: PanelState, heights: PanelHeights) -> CGFloat {
+        switch state {
+        case .full:
+            return 0
+        case .card:
+            return max(0, heights.full - heights.card)
+        case .collapsed:
+            return heights.full + 28
+        }
+    }
+
+    private func targetPanelState(
+        current: PanelState,
+        translation: CGFloat,
+        projectedOffset: CGFloat,
+        heights: PanelHeights
+    ) -> PanelState {
+        let threshold: CGFloat = 68
+        if abs(translation) < threshold {
+            return nearestPanelState(for: projectedOffset, heights: heights)
+        }
+
+        switch current {
+        case .full:
+            return translation > 0 ? .card : .full
+        case .card:
+            return translation < 0 ? .full : .collapsed
+        case .collapsed:
+            return translation < 0 ? .card : .collapsed
+        }
+    }
+
+    private func nearestPanelState(for offset: CGFloat, heights: PanelHeights) -> PanelState {
+        let fullOffset = panelYOffset(for: .full, heights: heights)
+        let cardOffset = panelYOffset(for: .card, heights: heights)
+        let collapsedOffset = panelYOffset(for: .collapsed, heights: heights)
+
+        if offset <= (fullOffset + cardOffset) * 0.5 {
+            return .full
+        }
+        if offset >= (cardOffset + collapsedOffset) * 0.5 {
+            return .collapsed
+        }
+        return .card
+    }
+
+    private func clamp<T: Comparable>(_ value: T, min lower: T, max upper: T) -> T {
+        Swift.min(Swift.max(value, lower), upper)
+    }
+
     private var prototypeActions: MessagesActions {
         MessagesActions(
             requestExpanded: {
-                panelExpanded = true
+                withAnimation(.easeOut(duration: 0.18)) {
+                    panelDragOffset = 0
+                    panelIsDragging = false
+                    panelIsSettling = false
+                    if panelState == .collapsed {
+                        panelState = .card
+                    }
+                }
             },
             requestCompact: {
-                panelExpanded = false
-                selectedMessageID = nil
-                panelMessageID = nil
-                panelSessionID = UUID()
+                withAnimation(.easeOut(duration: 0.18)) {
+                    panelDragOffset = 0
+                    panelIsDragging = false
+                    panelIsSettling = false
+                    panelState = .collapsed
+                    selectedMessageID = nil
+                    panelMessageID = nil
+                    panelSessionID = UUID()
+                }
             },
             insertText: { _ in },
             insertEventLink: { url, title in
@@ -247,7 +394,10 @@ struct ContentView: View {
                     // Match iMessage-like flow: send/update then collapse extension UI.
                     selectedMessageID = nil
                     panelMessageID = nil
-                    panelExpanded = false
+                    panelDragOffset = 0
+                    panelIsDragging = false
+                    panelIsSettling = false
+                    panelState = .collapsed
                     panelSessionID = UUID()
                 }
             }
@@ -260,6 +410,34 @@ struct ContentView: View {
         formatter.dateStyle = .none
         return formatter
     }()
+}
+
+private enum PanelState {
+    case collapsed
+    case card
+    case full
+}
+
+private struct PanelHeights {
+    let card: CGFloat
+    let full: CGFloat
+
+    init(geo: GeometryProxy) {
+        let availableHeight = max(320, geo.size.height - geo.safeAreaInsets.top)
+        self.full = availableHeight
+        self.card = min(430, availableHeight * 0.72)
+    }
+
+    func height(for state: PanelState) -> CGFloat {
+        switch state {
+        case .collapsed:
+            return 0
+        case .card:
+            return card
+        case .full:
+            return full
+        }
+    }
 }
 
 private struct EventMessage: Identifiable {

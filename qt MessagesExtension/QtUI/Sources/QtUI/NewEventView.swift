@@ -21,9 +21,20 @@ struct NewEventView: View {
     @State private var validationMessage: String?
     @State private var validationTask: Task<Void, Never>?
 
+    private var normalizedSelectedDates: Set<DateComponents> {
+        normalizeSelectedDateComponents(selectedDates)
+    }
+
+    private var selectedDatesBinding: Binding<Set<DateComponents>> {
+        Binding(
+            get: { normalizedSelectedDates },
+            set: { selectedDates = normalizeSelectedDateComponents($0) }
+        )
+    }
+
     private var canCreateEvent: Bool {
         let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !trimmed.isEmpty && !selectedDates.isEmpty
+        return !trimmed.isEmpty && !normalizedSelectedDates.isEmpty
     }
     
     var body: some View {
@@ -58,25 +69,26 @@ struct NewEventView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.white)
                         .stroke(.gray.opacity(0.3), lineWidth: 2)
-                    MultiDatePicker(selection: $selectedDates) { EmptyView() }.frame(maxHeight: 340)
+                    MultiDatePicker(selection: selectedDatesBinding) { EmptyView() }.frame(maxHeight: 340)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 
                 Button("Create event") {
                     // Basic validation
                     let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !selectedDates.isEmpty else { return }
+                    let canonicalDates = normalizedSelectedDates
+                    guard !canonicalDates.isEmpty else { return }
                     if startDate >= endDate {
                         showValidation("Start time must be before end time.")
                         return
                     }
 
-                    if hasDatesBeforeToday(selectedDates) {
+                    if hasDatesBeforeToday(canonicalDates) {
                         showValidation("Selected dates cannot be before today.")
                         return
                     }
 
-                    if hasAlreadyPassedDateTime(selectedDates, startDate: startDate) {
+                    if hasAlreadyPassedDateTime(canonicalDates, startDate: startDate) {
                         showValidation("Selected date and time cannot already be in the past.")
                         return
                     }
@@ -85,10 +97,11 @@ struct NewEventView: View {
                         name: trimmed,
                         start: startDate,
                         end: endDate,
-                        selectedDates: selectedDates
+                        selectedDates: canonicalDates
                     ) else { return }
 
                     validationMessage = nil
+                    selectedDates = canonicalDates
                     actions.insertEventLink(url, trimmed.isEmpty ? "New Event" : trimmed)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -198,6 +211,24 @@ private func hasAlreadyPassedDateTime(_ selectedDates: Set<DateComponents>, star
         let startOnDay = cal.date(bySettingHour: startHour, minute: startMinute, second: 0, of: day) ?? day
         return startOnDay <= now
     }
+}
+
+private func normalizeSelectedDateComponents(_ selectedDates: Set<DateComponents>) -> Set<DateComponents> {
+    let calendar = Calendar.current
+    return Set(selectedDates.compactMap { normalizeDayComponent($0, calendar: calendar) })
+}
+
+private func normalizeDayComponent(_ dateComponents: DateComponents, calendar: Calendar) -> DateComponents? {
+    if let year = dateComponents.year,
+       let month = dateComponents.month,
+       let day = dateComponents.day {
+        return DateComponents(year: year, month: month, day: day)
+    }
+
+    guard let date = dateComponents.date ?? calendar.date(from: dateComponents) else { return nil }
+    let dayStart = calendar.startOfDay(for: date)
+    let normalized = calendar.dateComponents([.year, .month, .day], from: dayStart)
+    return DateComponents(year: normalized.year, month: normalized.month, day: normalized.day)
 }
 
 private func hourLabel(_ hour: Int) -> String {
