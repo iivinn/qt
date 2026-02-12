@@ -18,6 +18,8 @@ struct NewEventView: View {
         today(atHour: 17)
     }()
     @State private var selectedDates: Set<DateComponents> = []
+    @State private var validationMessage: String?
+    @State private var validationTask: Task<Void, Never>?
 
     private var canCreateEvent: Bool {
         let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -64,7 +66,20 @@ struct NewEventView: View {
                     // Basic validation
                     let trimmed = eventName.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !selectedDates.isEmpty else { return }
-                    guard endDate > startDate else { return }
+                    if startDate >= endDate {
+                        showValidation("Start time must be before end time.")
+                        return
+                    }
+
+                    if hasDatesBeforeToday(selectedDates) {
+                        showValidation("Selected dates cannot be before today.")
+                        return
+                    }
+
+                    if hasAlreadyPassedDateTime(selectedDates, startDate: startDate) {
+                        showValidation("Selected date and time cannot already be in the past.")
+                        return
+                    }
 
                     guard let url = makeEventURL(
                         name: trimmed,
@@ -73,6 +88,7 @@ struct NewEventView: View {
                         selectedDates: selectedDates
                     ) else { return }
 
+                    validationMessage = nil
                     actions.insertEventLink(url, trimmed.isEmpty ? "New Event" : trimmed)
                 }
                 .font(.subheadline.weight(.semibold))
@@ -80,12 +96,33 @@ struct NewEventView: View {
                 .buttonStyle(.glassProminent)
                 .buttonSizing(.flexible)
                 .disabled(!canCreateEvent)
+
+                if let validationMessage {
+                    Text(validationMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.opacity)
+                }
             }
             .padding(.all)
             .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
             .padding(16)
             
 
+        }
+    }
+
+    private func showValidation(_ text: String) {
+        validationTask?.cancel()
+        validationMessage = text
+        validationTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if !Task.isCancelled {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    validationMessage = nil
+                }
+            }
         }
     }
 }
@@ -139,6 +176,28 @@ private func hourComponent(from date: Date) -> Int {
 private func dateWithHour(_ date: Date, hour: Int) -> Date {
     let cal = Calendar.current
     return cal.date(bySettingHour: hour, minute: 0, second: 0, of: date) ?? date
+}
+
+private func hasDatesBeforeToday(_ selectedDates: Set<DateComponents>) -> Bool {
+    let cal = Calendar.current
+    let todayStart = cal.startOfDay(for: Date())
+    return selectedDates.contains { dc in
+        guard let date = cal.date(from: dc) else { return false }
+        return cal.startOfDay(for: date) < todayStart
+    }
+}
+
+private func hasAlreadyPassedDateTime(_ selectedDates: Set<DateComponents>, startDate: Date) -> Bool {
+    let cal = Calendar.current
+    let now = Date()
+    let startHour = cal.component(.hour, from: startDate)
+    let startMinute = cal.component(.minute, from: startDate)
+
+    return selectedDates.contains { dc in
+        guard let day = cal.date(from: dc) else { return false }
+        let startOnDay = cal.date(bySettingHour: startHour, minute: startMinute, second: 0, of: day) ?? day
+        return startOnDay <= now
+    }
 }
 
 private func hourLabel(_ hour: Int) -> String {
