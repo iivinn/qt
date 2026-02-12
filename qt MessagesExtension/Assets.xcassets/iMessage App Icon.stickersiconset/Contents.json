@@ -1,21 +1,25 @@
 {
   "images" : [
     {
+      "filename" : "Adobe Express - file-3.png",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "29x29"
     },
     {
+      "filename" : "Adobe Express - file-4.png",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "29x29"
     },
     {
+      "filename" : "Adobe Express - file.png",
       "idiom" : "iphone",
       "scale" : "2x",
       "size" : "60x45"
     },
     {
+      "filename" : "Adobe Express - file-2.png",
       "idiom" : "iphone",
       "scale" : "3x",
       "size" : "60x45"
@@ -36,6 +40,7 @@
       "size" : "74x55"
     },
     {
+      "filename" : "qt-logo.png",
       "idiom" : "ios-marketing",
       "scale" : "1x",
       "size" : "1024x1024"
