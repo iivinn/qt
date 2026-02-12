@@ -27,14 +27,14 @@ struct NewEventView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("🗓️ New Event").font(.title).fontWeight(.semibold)
+                Text("🗓️ New Event").font(.headline).fontWeight(.semibold)
                 TextField("Name your event...", text: $eventName).padding(8).frame(maxWidth: .infinity, maxHeight: 48)
                     .background(
                     RoundedRectangle(cornerRadius: 4)
                         .stroke(.gray.opacity(0.3), lineWidth: 2)
                     ).padding(.init(top: 8, leading: 0, bottom: 8, trailing: 0))
                 
-                Text("What times might work?").font(.title2)
+                Text("What times might work?").font(.subheadline).fontWeight(.medium)
                 HStack(spacing: 8) {
                     HourWheelPicker(
                         hour: Binding(
@@ -51,7 +51,7 @@ struct NewEventView: View {
                     )
                 }
 
-                Text("What dates might work?").font(.title2)
+                Text("What dates might work?").font(.subheadline).fontWeight(.medium)
                 ZStack {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(.white)
@@ -82,7 +82,7 @@ struct NewEventView: View {
                 .disabled(!canCreateEvent)
             }
             .padding(.all)
-            .background(RoundedRectangle(cornerRadius: 8).fill(.white).shadow(radius: 8))
+            .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
             .padding(16)
             
 

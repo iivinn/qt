@@ -19,14 +19,16 @@ struct EventLinkView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("📅 " + config.name)
-                    .font(.title.weight(.semibold))
+                    .font(.headline.weight(.semibold))
                 Text(mode == .add ? "Tap or drag to mark your availability" : "Tap a box to see who is available")
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
                     modeButton(title: "View availability", target: .view)
                     modeButton(title: "Add availability", target: .add)
+                    Spacer(minLength: 0)
+                    clearSelectionButton
                 }
 
                 if mode == .view {
@@ -63,10 +65,9 @@ struct EventLinkView: View {
                 .disabled(mode == .view || selectedSlots.isEmpty)
             }
             .padding(.all)
-            .background(RoundedRectangle(cornerRadius: 8).fill(.white).shadow(radius: 8))
+            .background(RoundedRectangle(cornerRadius: 16).fill(.white).shadow(radius: 8))
             .padding(16)
         }
-        
     }
 
     private func modeButton(title: String, target: AvailabilityMode) -> some View {
@@ -88,6 +89,28 @@ struct EventLinkView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(mode == target ? Color.black : Color.gray.opacity(0.45), lineWidth: 1)
         )
+    }
+
+    private var clearSelectionButton: some View {
+        Button {
+            selectedSlots.removeAll()
+            inspectedSlot = nil
+        } label: {
+            Image(systemName: "xmark")
+                .font(.subheadline.weight(.medium))
+                .frame(width: 16, height: 16, alignment: .center)
+        }
+        .frame(width: 36, height: 34, alignment: .center)
+        .foregroundStyle(selectedSlots.isEmpty ? Color.secondary : Color.red)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(selectedSlots.isEmpty ? Color.gray.opacity(0.35) : Color.red.opacity(0.75), lineWidth: 1)
+        )
+        .disabled(selectedSlots.isEmpty)
     }
 
     @ViewBuilder
@@ -196,6 +219,7 @@ struct EventLinkView: View {
                     .stroke(selectionStrokeColor, lineWidth: 1.1)
             )
             .contentShape(Rectangle())
+            .animation(.easeInOut(duration: 0.14), value: showSelection)
             .onTapGesture {
                 if mode == .view {
                     inspectedSlot = key
